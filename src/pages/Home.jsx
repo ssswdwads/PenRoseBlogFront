@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import Maid from '../components/home/maid/Maid';
+import Maid from '../components/common/maid/Maid';
 import '../styles/home/Home.css';
 import BannerNavbar from '../components/common/BannerNavbar';
 import ArticleCard from '../components/common/ArticleCard';
@@ -20,6 +20,12 @@ const Home = () => {
   useEffect(() => {
     if (posts && posts.length) console.debug('[Home] posts sample:', posts.slice(0,3));
   }, [posts]);
+
+  // 隐藏 Home 页滚动条（不影响滚动），离开时恢复
+  useEffect(() => {
+    try { document.body.classList.add('hide-scrollbar'); } catch (err) { void err; }
+    return () => { try { document.body.classList.remove('hide-scrollbar'); } catch (err) { void err; } };
+  }, []);
 
   return (
     <>

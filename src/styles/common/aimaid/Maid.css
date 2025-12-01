@@ -1,57 +1,84 @@
+.maid-splitter {
+	height: 6px;
+	cursor: ns-resize;
+	background: linear-gradient(to bottom, rgba(0,0,0,0.04), rgba(0,0,0,0.06));
+	border-top: 1px solid rgba(0,0,0,0.04);
+	border-bottom: 1px solid rgba(0,0,0,0.04);
+}
+/* Copied from styles/home/maidstyle/Maid.css - moved to common/aimaid */
 .maid-widget {
-	--maid-bar-h: 3vh;
+	--maid-header-h: 42px;
+	--maid-bar-h: 56px;
 	--maid-stage-collapse: 300ms;
 	--maid-stage-expand: 300ms;
 	--maid-btn-collapse-duration: 260ms;
-	--maid-btn-expand-duration: 4200ms;
+	--maid-btn-expand-duration: 260ms;
 	--maid-btn-stagger: 100ms;
-  position: fixed;
-	right: 0vw;
-	bottom: 1vh;
-	width: 20vw; 
-	height: 45vh; 
-  background: transparent;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  border: none;
-  box-shadow: none;
-  color: inherit;
-  -webkit-user-select: none;
-  user-select: none;
-  z-index: 999;
-  cursor: grab;
-}
-.maid-dragging { cursor: grabbing; }
-.maid-canvas-wrap {
-	position: absolute;
-	left: 0;
+	position: fixed;
 	right: 0;
 	top: 0;
-	bottom: var(--maid-bar-h);
-	transform: none;
-	transition: none;
-	will-change: auto;
-	border-radius: 10px;
+	height: 100vh;
+	width: 25vw; /* panel width */
+	display: flex;
+	flex-direction: column;
+	background: #ffffff;
+	box-shadow: -8px 0 24px rgba(0,0,0,0.06);
+	color: inherit;
+	-webkit-user-select: none;
+	user-select: none;
+	z-index: 9999;
+	overflow: visible; /* allow popouts (emotion panel etc) to be visible */
+	transform: translateX(0);
+	transition: transform .2s ease;
 }
-.maid-canvas-wrap canvas { width: 100%; height: 100%; }
-.maid-controlbar {
+.maid-resizer {
 	position: absolute;
-	left: 0;
-	right: 0;
+	left: -8px;
+	top: 0;
 	bottom: 0;
+	width: 16px;
+	cursor: ew-resize;
+	z-index: 10020;
+	background: transparent;
+}
+.maid-resizer:hover { background: rgba(0,0,0,0.02); }
+.maid-dragging { cursor: grabbing; }
+/* 顶部栏与主体 */
+.maid-header { height: var(--maid-header-h); display: flex; align-items: center; justify-content: flex-end; padding: 6px 8px; border-bottom: 1px solid rgba(0,0,0,0.04); background: rgba(255,255,255,0.98); }
+.maid-header-actions { display: inline-flex; align-items: center; gap: 8px; }
+
+/* 上下分区 */
+.maid-top { box-sizing: border-box; padding: 12px; background: transparent; height: 50vh; display: flex; flex-direction: column; min-height: 0; }
+.maid-bottom { height: calc(100vh - var(--maid-header-h) - 50vh); min-height: 0; display: flex; flex-direction: column; }
+.maid-ai-chat-wrap { height: 100%; display: flex; flex-direction: column; }
+.maid-ai-panel { flex: 1 1 auto; height: 100%; }
+
+.maid-canvas-area {
+	flex: 1 1 auto;
+	padding: 12px;
+	box-sizing: border-box;
+	display: flex;
+	align-items: flex-end; /* align model toward bottom */
+	justify-content: center; /* horizontally center canvas */
+}
+
+.maid-canvas-wrap {
+	width: 100%;
+	height: 100%;
+	border-radius: 10px;
+	background: transparent;
+}
+.maid-canvas-wrap canvas { width: 100%; height: 100%; display: block; }
+.maid-controlbar {
 	height: var(--maid-bar-h);
 	display: flex;
 	align-items: center;
 	justify-content: flex-start;
 	gap: 10px;
-	padding: 6px 10px;
-	background: transparent;
-	border-top: none;
-	border-radius: 0;
-	z-index: 51;
-	-webkit-backdrop-filter: none;
-	backdrop-filter: none;
-	box-shadow: none;
+	padding: 8px 12px;
+	background: rgba(255,255,255,0.98);
+	border-top: 1px solid rgba(0,0,0,0.04);
+	z-index: 10005; /* ensure controls appear above canvas */
 }
 .maid-controls-label { font-size: 12px; color: #57606a; }
 .maid-field { display: inline-flex; align-items: center; gap: 6px; }
@@ -103,15 +130,17 @@
 	position: absolute;
 	min-width: 220px;
 	padding: 8px;
-	background: rgba(255,255,255,0.55);
+	background: rgba(255,255,255,0.95);
 	-webkit-backdrop-filter: blur(8px) saturate(140%);
 	backdrop-filter: blur(8px) saturate(140%);
-	border: 1px solid rgba(208,215,222,0.6);
+	border: 1px solid rgba(208,215,222,0.9);
 	border-radius: 8px;
 	box-shadow: 0 6px 20px rgba(0,0,0,0.12);
-	z-index: 200;
+	z-index: 10010; /* above canvas and controls */
 }
 .maid-emotion-panel-left { left: 0; top: 50%; bottom: auto; transform: translateX(calc(-100% - 8px)) translateY(-50%); }
+/* 改为面板内部浮层：位于左内侧，控制条上方 */
+.maid-emotion-panel-in { left: 12px; right: auto; top: auto; bottom: calc(var(--maid-bar-h) + 12px); transform: none; }
 .maid-emotion-list { margin: 0; padding: 4px; list-style: none; max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 6px; -ms-overflow-style: none; }
 .maid-emotion-list::-webkit-scrollbar { width: 0; height: 0; }
 .maid-emotion-item { width: 100%; text-align: left; padding: 6px 8px; border: 1px solid #d0d7de; background: #fff; border-radius: 6px; font-size: 12px; color: #24292f; transition: all .12s ease; }
@@ -136,10 +165,10 @@
 .maid-range { width: 120px; accent-color: #40c2a4; }
 .maid-loading-overlay {
 	position: absolute;
-	left: 0;
-	right: 0;
-	top: 0;
-	bottom: var(--maid-bar-h);
+	left: 12px;
+	right: 12px;
+	top: 12px;
+	bottom: calc(var(--maid-bar-h) + 12px);
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -166,17 +195,17 @@
 	position: absolute;
 	left: 0;
 	right: 0;
-	top: 0;
-	bottom: var(--maid-bar-h);
+	top: var(--maid-header-h);
+	bottom: 0;
 	display: flex;
 	flex-direction: column;
 	align-items: flex-start;
 	gap: 16px;
 	padding: 10px 12px;
-	background: rgba(255, 255, 255, 0.5);
+	background: rgba(255, 255, 255, 0.9);
 	border: none;
 	color: #24292f;
-	z-index: 50;
+	z-index: 300; /* above chat and canvas */
 	transform: none;
 	transition: none;
 }
@@ -199,28 +228,27 @@
 .maid-widget.maid-anim-expanding-stage .maid-loading-overlay { visibility: visible; }
 .maid-widget.maid-collapsed .maid-controlbar .maid-btn:not(.maid-toggle) { opacity: 0; transform: scale(.6); pointer-events: none; }
 .maid-widget.maid-collapsed .maid-controlbar { justify-content: flex-start; }
-.maid-widget.maid-collapsed { z-index: 10; }
-.maid-widget.maid-collapsed .maid-canvas-wrap,
-.maid-widget.maid-collapsed .maid-loading-overlay { opacity: 0; visibility: hidden; pointer-events: none; clip-path: inset(0 0 100% 0); transition: none; }
+.maid-widget.maid-collapsed { z-index: 10; transform: translateX(100%); }
 
 /* AI 聊天面板样式 */
 .maid-ai-panel {
-	position: absolute;
-	right: calc(100% + 12px);
-	bottom: 0;
-	width: 320px;
-	max-width: 42vw;
-	height: 46vh;
-	background: rgba(255,255,255,0.9);
+	position: relative;
+	width: 100%;
+	height: 100%;
+	background: rgba(255,255,255,0.95);
 	border: 1px solid rgba(208,215,222,0.9);
 	border-radius: 10px;
 	box-shadow: 0 8px 30px rgba(0,0,0,0.15);
 	display: flex;
 	flex-direction: column;
 	z-index: 220;
+	overflow: hidden;
 }
 .maid-ai-header { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid rgba(0,0,0,0.04); font-size: 13px; }
-.maid-ai-messages { padding: 8px; overflow: auto; flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; }
+.maid-ai-messages { padding: 8px; overflow: auto; flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+/* 隐藏聊天滚动条（仍可滚动） */
+.maid-ai-messages { -ms-overflow-style: none; scrollbar-width: none; }
+.maid-ai-messages::-webkit-scrollbar { width: 0; height: 0; }
 .maid-ai-msg { max-width: 86%; }
 .maid-ai-msg.user { align-self: flex-end; text-align: right; }
 .maid-ai-msg.assistant { align-self: flex-start; text-align: left; }
@@ -230,3 +258,11 @@
 .maid-ai-input { flex: 1 1 auto; resize: none; padding: 8px; border-radius: 8px; border: 1px solid #d0d7de; font-size: 13px; }
 .maid-ai-error { padding: 6px 10px; color: #b42318; background: #fff5f5; border-top: 1px solid rgba(0,0,0,0.03); font-size: 12px; }
 .maid-ai-sending { font-size: 12px; color: #374151; margin-right: 8px; }
+
+/* 收起时露出的侧边小按钮 */
+.maid-expand-handle { position: fixed; right: 8px; top: 50%; transform: translateY(-50%); z-index: 10040; background: #fff; border: 1px solid rgba(0,0,0,0.12); border-radius: 10px 0 0 10px; width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
+.maid-expand-handle img { width: 22px; height: 22px; display: block; }
+.maid-expand-handle:hover { transform: translateY(-50%) scale(1.03); }
+
+/* 收起时隐藏主面板内容（header 仍可见一条窄边） */
+.maid-widget.maid-collapsed .maid-ai-panel { display: none !important; }
