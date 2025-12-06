@@ -5,14 +5,14 @@ export function AiAssistantProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const sendMessage = useCallback(async (message) => {
+  const sendMessage = useCallback(async (message, { model } = {}) => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify(model ? { message, model } : { message }),
       });
       if (!res.ok) {
         const txt = await res.text();
@@ -28,7 +28,7 @@ export function AiAssistantProvider({ children }) {
     }
   }, []);
 
-  const sendMessageStream = useCallback(async (message, { onChunk, firstChunkTimeoutMs = 20000 } = {}) => {
+  const sendMessageStream = useCallback(async (message, { onChunk, firstChunkTimeoutMs = 20000, model } = {}) => {
     // Use EventSource (GET) to receive server-sent events from backend
     setLoading(true);
     setError(null);
@@ -36,10 +36,10 @@ export function AiAssistantProvider({ children }) {
     let firstTimer;
     try {
       const encoded = encodeURIComponent(String(message ?? ''));
-      const url = `/api/ai/chat/stream?message=${encoded}`;
+      const url = `/api/ai/chat/stream?message=${encoded}${model ? `&model=${encodeURIComponent(model)}` : ''}`;
       if (typeof window === 'undefined' || typeof window.EventSource === 'undefined') {
         // Fallback: no SSE support
-        const full = await sendMessage(message);
+        const full = await sendMessage(message, { model });
         if (onChunk) try { onChunk(full); } catch { /* ignore */ }
         return full;
       }
@@ -76,7 +76,7 @@ export function AiAssistantProvider({ children }) {
     } catch {
       // Fallback to non-streaming on errors
       try {
-        const full = await sendMessage(message);
+        const full = await sendMessage(message, { model });
         if (onChunk) try { onChunk(full); } catch { /* ignore */ }
         return full;
       } catch (inner) {

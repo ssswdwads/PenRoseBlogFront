@@ -11,6 +11,9 @@ import EmotionPanel from './components/EmotionPanel';
 import ExpandHandle from './components/ExpandHandle';
 import { DEFAULT_CONFIG_KEY, modelConfigs, RATIO_MIN, RATIO_MAX, WIDTH_KEY as WIDTH_KEY_CONST, SPLIT_KEY as SPLIT_KEY_CONST, MIN_TOP_PX as MIN_TOP_PX_CONST, MIN_BOTTOM_PX as MIN_BOTTOM_PX_CONST } from './constants';
 import { Live2DModel } from 'pixi-live2d-display/cubism4';
+import usePanelWidth from './hooks/usePanelWidth';
+import useLayoutSplit from './hooks/useLayoutSplit';
+import ensureCubismCoreReady from './utils/ensureCubismCoreReady';
 
 // 确保 Live2D 使用 Pixi 的全局 Ticker 驱动动画（需要传入 Ticker 类，而非实例）
 if (!Live2DModel._tickerRegistered) {
@@ -19,26 +22,7 @@ if (!Live2DModel._tickerRegistered) {
   Live2DModel._tickerRegistered = true;
 }
 
-// 确保在使用 pixi-live2d-display 之前已加载 Cubism Core
-async function ensureCubismCoreReady() {
-  if (typeof window === 'undefined') return;
-  if (window.Live2DCubismCore) return; // 已有全局对象
-  // 若 index.html 未成功加载，降级为运行时注入
-  const existing = document.getElementById('live2dcubismcore-script');
-  if (existing) {
-    await new Promise((resolve) => existing.addEventListener('load', resolve, { once: true }));
-    return;
-  }
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = '/live2dsrc/live2dcubismcore.min.js';
-    s.async = true;
-    s.id = 'live2dcubismcore-script';
-    s.onload = () => resolve();
-    s.onerror = (e) => reject(e);
-    document.head.appendChild(s);
-  });
-}
+// ensureCubismCoreReady 已通过 utils 引入，移除本地重复定义
 
 export default function Maid() {
   const containerRef = useRef(null);
@@ -54,29 +38,14 @@ export default function Maid() {
   const enforcerFnRef = useRef(null);
   const [collapsed, setCollapsed] = useState(false);
   const WIDTH_KEY = WIDTH_KEY_CONST;
-  const [panelWidth, setPanelWidth] = useState(() => {
-    if (typeof window === 'undefined') return 360;
-    try {
-      const saved = localStorage.getItem(WIDTH_KEY);
-      const w = saved ? parseInt(saved, 10) : Math.round(window.innerWidth * 0.25);
-      const minW = 220; const maxW = Math.max(minW, window.innerWidth - 80);
-      return Math.min(Math.max(w || 360, minW), maxW);
-    } catch {
-      return Math.round(window.innerWidth * 0.25);
-    }
-  });
+  const { panelWidth, onResizerPointerDown } = usePanelWidth(WIDTH_KEY);
   const [dpi, setDpi] = useState(3);
   const [userScale] = useState(1); // UI 不再暴露
   const basePosRef = useRef({ x: 0, y: 0 });
   const offsetRef = useRef({ x: 0, y: 0 });
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [innerHeight, setInnerHeight] = useState(0);
   const SPLIT_KEY = SPLIT_KEY_CONST;
-  const [splitRatio, setSplitRatio] = useState(() => {
-    if (typeof window === 'undefined') return 0.5;
-    const s = localStorage.getItem(SPLIT_KEY);
-    const n = s ? parseFloat(s) : 0.5; if (!Number.isFinite(n)) return 0.5; return Math.min(RATIO_MAX, Math.max(RATIO_MIN, n));
-  });
+  const { splitRatio, innerHeight, setInnerHeight, onSplitPointerDown, onSplitDoubleClick, onSplitKeyDown, calcHeights } = useLayoutSplit({ RATIO_MIN, RATIO_MAX, MIN_TOP_PX: MIN_TOP_PX_CONST, MIN_BOTTOM_PX: MIN_BOTTOM_PX_CONST });
   const [controlbarH, setControlbarH] = useState(0);
   const MIN_TOP_PX = MIN_TOP_PX_CONST;
   const MIN_BOTTOM_PX = MIN_BOTTOM_PX_CONST;
@@ -88,16 +57,16 @@ export default function Maid() {
   const [selectedScene, setSelectedScene] = useState('');
   const [openPanel, setOpenPanel] = useState('');
 
-  const [currentModelKey, setCurrentModelKey] = useState(DEFAULT_CONFIG_KEY);
+  // 移除前端模型选择，固定使用后端配置对应的默认模型
   const getCurrentConfig = useCallback(
-    () => modelConfigs[currentModelKey] || modelConfigs[DEFAULT_CONFIG_KEY],
-    [currentModelKey],
+    () => modelConfigs[DEFAULT_CONFIG_KEY],
+    [],
   );
 
   const getCategorizedExpressions = useCallback(() => {
-    const cfg = modelConfigs[currentModelKey] || modelConfigs[DEFAULT_CONFIG_KEY];
+    const cfg = modelConfigs[DEFAULT_CONFIG_KEY];
     return cfg.expressions;
-  }, [currentModelKey]);
+  }, []);
 
   const fitAndPlace = useCallback(() => {
     const app = appRef.current;
@@ -152,7 +121,63 @@ export default function Maid() {
 
   const fitAndPlaceMemo = useCallback(() => { try { fitAndPlace(); } catch { /* ignore */ } }, [fitAndPlace]);
 
-  // 初始化 Pixi 应用并挂载到 CanvasArea 的 .maid-canvas-wrap
+  const loadAndShowModel = useCallback(async (path) => {
+    const cfgPath = path || getCurrentConfig().modelPath;
+    const app = appRef.current; if (!app || app.destroyed || !app.stage) return;
+    try {
+      await ensureCubismCoreReady();
+      setStatus('加载模型资源…'); setError('');
+      console.debug('[Maid] Loading model:', cfgPath);
+      if (modelRef.current && app && app.stage) {
+        try { modelRef.current.autoUpdate = false; } catch { /* ignore */ }
+        try { app.stage.removeChild(modelRef.current); } catch { /* ignore */ }
+        try {
+          const oldPath = modelUrlRef.current;
+          if (oldPath && oldPath !== cfgPath) {
+            try { modelRef.current.destroy(true); } catch { /* ignore */ }
+            try { preloadedRef.current.delete(oldPath); } catch { /* ignore */ }
+          }
+        } catch { /* ignore */ }
+      }
+      try { app.stage.removeChildren(); } catch { /* ignore */ }
+      let model = preloadedRef.current.get(cfgPath);
+      if (!model) {
+        model = await Live2DModel.from(cfgPath, { autoInteract: false, autoUpdate: false });
+        model.interactive = true;
+        if (model.anchor && typeof model.anchor.set === 'function') model.anchor.set(0.5, 0.5);
+        try {
+          if (!model._ticker && Ticker?.shared) model._ticker = Ticker.shared;
+          model.autoUpdate = true;
+        } catch { /* ignore */ }
+        preloadedRef.current.set(cfgPath, model);
+      }
+      modelRef.current = model; modelUrlRef.current = cfgPath;
+      model.visible = true;
+      if (app && app.stage) {
+        if (model.parent !== app.stage) app.stage.addChild(model);
+      } else return;
+      try {
+        if (!model._ticker && Ticker?.shared) model._ticker = Ticker.shared;
+        model.autoUpdate = true;
+      } catch { /* ignore */ }
+      // 已移除 currentModelKey 同步逻辑
+      fitAndPlaceMemo();
+      try { Ticker.shared.remove(enforcerFnRef.current); } catch { /* ignore */ }
+      enforcerOnRef.current = false; compositeTargetRef.current = new Map();
+      try { expJsonCacheRef.current = new Map(); } catch { /* ignore */ }
+      await startIdle(modelRef.current);
+      setStatus(''); setError('');
+      try {
+        const { emotionList } = getCategorizedExpressions();
+        setSelectedExpression(emotionList[0]?.name || '');
+        setSelectedClothes([]);
+        setSelectedAction('');
+        setSelectedScene('');
+      } catch { /* ignore */ }
+    } catch (e) { console.error('[Maid] 加载模型失败:', e); setError(e?.message || '加载模型失败'); setStatus(''); }
+  }, [getCurrentConfig, fitAndPlaceMemo, getCategorizedExpressions, startIdle]);
+
+  // 初始化 Pixi 应用并挂载到 CanvasArea 的 .maid-canvas-wrap（放到 loadAndShowModel 之后，避免“before initialization”）
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const container = containerRef.current; if (!container) return undefined;
@@ -187,31 +212,15 @@ export default function Maid() {
       try { fitAndPlaceMemo(); } catch { /* ignore */ }
     };
     // 轻微跟随鼠标
-    const onMove = (e) => {
-      try {
-        const rect = canvasEl.getBoundingClientRect();
-        const nx = ((e.clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
-        const ny = ((e.clientY - rect.top) / Math.max(1, rect.height)) * 2 - 1;
-        const maxX = 16; const maxY = 10;
-        offsetRef.current = { x: nx * maxX, y: ny * maxY };
-        const m = modelRef.current; if (m) { m.x = basePosRef.current.x + offsetRef.current.x; m.y = basePosRef.current.y + offsetRef.current.y; }
-      } catch { /* ignore */ }
-    };
-    const onLeave = () => {
-      offsetRef.current = { x: 0, y: 0 };
-      const m = modelRef.current; if (m) { m.x = basePosRef.current.x; m.y = basePosRef.current.y; }
-    };
 
     window.addEventListener('resize', handleResize);
-    try { canvasEl.addEventListener('pointermove', onMove); } catch { /* ignore */ }
-    try { canvasEl.addEventListener('pointerleave', onLeave); } catch { /* ignore */ }
+    // 不再监听鼠标移动与离开事件
 
     const preloadedAtMount = preloadedRef.current;
 
     return () => {
       window.removeEventListener('resize', handleResize);
-      try { canvasEl.removeEventListener('pointermove', onMove); } catch { /* ignore */ }
-      try { canvasEl.removeEventListener('pointerleave', onLeave); } catch { /* ignore */ }
+      // 无需移除鼠标事件
       try { Ticker.shared.remove(enforcerFnRef.current); } catch { /* ignore */ }
       enforcerOnRef.current = false; compositeTargetRef.current = new Map();
       try {
@@ -230,7 +239,7 @@ export default function Maid() {
       } catch { /* ignore */ }
       appRef.current = null;
     };
-  }, [dpi, fitAndPlaceMemo]);
+  }, [dpi, fitAndPlaceMemo, getCurrentConfig, loadAndShowModel]);
 
   // 面板尺寸、分割比例变动时，调整 renderer 并重新布局模型
   useEffect(() => {
@@ -242,75 +251,14 @@ export default function Maid() {
   }, [panelWidth, collapsed, userScale, dpi, splitRatio, innerHeight, fitAndPlaceMemo]);
 
 
-  const loadAndShowModel = useCallback(async (path) => {
-    const cfgPath = path || getCurrentConfig().modelPath;
-    const app = appRef.current; if (!app || app.destroyed || !app.stage) return;
-    try {
-      // 确保 Cubism Core 可用，否则 from() 会无声失败
-      await ensureCubismCoreReady();
-      setStatus('加载模型资源…'); setError('');
-      console.debug('[Maid] Loading model:', cfgPath);
-      if (modelRef.current && app && app.stage) {
-        try { modelRef.current.autoUpdate = false; } catch { /* ignore */ }
-        try { app.stage.removeChild(modelRef.current); } catch { /* ignore */ }
-        try {
-          const oldPath = modelUrlRef.current;
-          if (oldPath && oldPath !== cfgPath) {
-            try { modelRef.current.destroy(true); } catch { /* ignore */ }
-            try { preloadedRef.current.delete(oldPath); } catch { /* ignore */ }
-          }
-        } catch { /* ignore */ }
-      }
-      try { app.stage.removeChildren(); } catch { /* ignore */ }
-      let model = preloadedRef.current.get(cfgPath);
-      if (!model) {
-        // 禁用初始化阶段的 autoUpdate，待注册 ticker 后再开启，
-        // 规避某些环境下 _ticker 未就绪导致的 "Cannot read properties of undefined (reading 'add')"。
-        model = await Live2DModel.from(cfgPath, { autoInteract: false, autoUpdate: false });
-        model.interactive = true;
-        if (model.anchor && typeof model.anchor.set === 'function') model.anchor.set(0.5, 0.5);
-        try {
-          // 双保险：确保实例级 ticker 存在
-          if (!model._ticker && Ticker?.shared) model._ticker = Ticker.shared;
-          // 开启自动更新
-          model.autoUpdate = true;
-        } catch { /* ignore */ }
-        preloadedRef.current.set(cfgPath, model);
-      }
-      modelRef.current = model; modelUrlRef.current = cfgPath;
-      model.visible = true;
-      if (app && app.stage) {
-        if (model.parent !== app.stage) app.stage.addChild(model);
-      } else return;
-      try {
-        if (!model._ticker && Ticker?.shared) model._ticker = Ticker.shared;
-        model.autoUpdate = true;
-      } catch { /* ignore */ }
-      try { const found = Object.entries(modelConfigs).find(([, c]) => c.modelPath === cfgPath); if (found) setCurrentModelKey(found[0]); } catch { /* ignore */ }
-      fitAndPlaceMemo();
-      try { Ticker.shared.remove(enforcerFnRef.current); } catch { /* ignore */ }
-      enforcerOnRef.current = false; compositeTargetRef.current = new Map();
-      try { expJsonCacheRef.current = new Map(); } catch { /* ignore */ }
-      await startIdle(modelRef.current);
-      setStatus(''); setError('');
-      try {
-        const { emotionList } = getCategorizedExpressions();
-        setSelectedExpression(emotionList[0]?.name || '');
-        setSelectedClothes([]);
-        setSelectedAction('');
-        setSelectedScene('');
-      } catch { /* ignore */ }
-    } catch (e) { console.error('[Maid] 加载模型失败:', e); setError(e?.message || '加载模型失败'); setStatus(''); }
-  }, [getCurrentConfig, fitAndPlaceMemo, getCategorizedExpressions, startIdle]);
-
   const resolveExpressionUrl = useCallback((file) => {
     const f = String(file || '').replace(/\\/g, '/');
     if (/^https?:\/\//i.test(f) || f.startsWith('/')) return f;
-    const fallbackPath = (modelConfigs[currentModelKey] || modelConfigs[DEFAULT_CONFIG_KEY]).modelPath;
+    const fallbackPath = (modelConfigs[DEFAULT_CONFIG_KEY]).modelPath;
     const modelUrl = modelUrlRef.current || fallbackPath;
     const i = modelUrl.lastIndexOf('/'); const base = i >= 0 ? modelUrl.slice(0, i + 1) : '/';
     return base + f;
-  }, [currentModelKey, modelUrlRef]);
+  }, [modelUrlRef]);
 
   const getExpressionJson = useCallback(async (file) => {
     const url = resolveExpressionUrl(file);
@@ -362,7 +310,7 @@ export default function Maid() {
     const el = containerRef.current; if (!el) return; const bar = el.querySelector('.maid-controlbar'); if (!bar) return; const btns = Array.from(bar.querySelectorAll('button.maid-btn'));
     btns.forEach((b, i) => { try { b.style.setProperty('--i', String(i)); } catch (err) { void err; } }); try { bar.style.setProperty('--btnCount', String(btns.length)); } catch (err) { void err; }
     try { setControlbarH(bar.offsetHeight || 0); } catch (err) { void err; }
-  }, []);
+  }, [setInnerHeight]);
 
   // 在尺寸、分割比例变化时，更新控制栏高度（确保画布高度 = 底部区高度 - 控制栏高度）
   useEffect(() => {
@@ -373,114 +321,11 @@ export default function Maid() {
   const toggleCollapsed = () => { setCollapsed((v) => !v); };
   const toggleSettings = () => { setCollapsed(false); setSettingsOpen((v) => !v); };
 
-  // 侧栏宽度拖动
-  const resizingRef = useRef(false);
-  const resizerStartXRef = useRef(0);
-  const resizerStartWRef = useRef(0);
+  const onResizerDown = (e) => onResizerPointerDown(e, containerRef.current);
 
-  useEffect(() => {
-    const onPointerMove = (e) => {
-      if (!resizingRef.current) return;
-      try {
-        const dx = resizerStartXRef.current - e.clientX;
-        const minW = 220; const maxW = Math.max(minW, window.innerWidth - 80);
-        const next = Math.max(minW, Math.min(maxW, resizerStartWRef.current + dx));
-        setPanelWidth(Math.round(next));
-      } catch { /* ignore */ }
-    };
-    const onPointerUp = () => {
-      if (!resizingRef.current) return;
-      resizingRef.current = false;
-      try { document.body.style.cursor = ''; } catch { /* ignore */ }
-    };
-    window.addEventListener('pointermove', onPointerMove);
-    window.addEventListener('pointerup', onPointerUp);
-    return () => {
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-    };
-  }, []);
+  // 持久化已在 usePanelWidth 内处理
 
-  const onResizerPointerDown = (e) => {
-    try {
-      if (typeof e.target.setPointerCapture === 'function' && e.pointerId != null) e.target.setPointerCapture(e.pointerId);
-    } catch { /* ignore */ }
-    resizingRef.current = true;
-    resizerStartXRef.current = e.clientX;
-    resizerStartWRef.current = (containerRef.current && containerRef.current.clientWidth) || panelWidth;
-    try { document.body.style.cursor = 'ew-resize'; } catch { /* ignore */ }
-  };
-
-  useEffect(() => {
-    try { localStorage.setItem(WIDTH_KEY, String(panelWidth)); } catch { /* ignore */ }
-  }, [panelWidth]);
-
-  // 分割条拖拽
-  const draggingSplitRef = useRef(false);
-
-  useEffect(() => {
-    try { localStorage.setItem(SPLIT_KEY, String(splitRatio)); } catch { /* ignore */ }
-  }, [splitRatio]);
-
-  useEffect(() => {
-    const onMove = (e) => {
-      if (!draggingSplitRef.current) return;
-      const el = containerRef.current; if (!el) return;
-      const header = el.querySelector('.maid-header');
-      const boxTop = (el.getBoundingClientRect().top || 0) + (header?.offsetHeight || 0);
-      const total = innerHeight || (el.clientHeight - (header?.offsetHeight || 0));
-      const y = e.clientY - boxTop;
-      const lowerBound = Math.max(RATIO_MIN, total > 0 ? MIN_TOP_PX / total : RATIO_MIN);
-      const upperBound = Math.min(RATIO_MAX, total > 0 ? 1 - (MIN_BOTTOM_PX / total) : RATIO_MAX);
-      const ratio = Math.min(upperBound, Math.max(lowerBound, y / Math.max(1, total)));
-      setSplitRatio(ratio);
-    };
-    const onUp = () => {
-      if (!draggingSplitRef.current) return;
-      draggingSplitRef.current = false;
-      try { document.body.style.cursor = ''; } catch { /* ignore */ }
-    };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('pointerup', onUp);
-    return () => {
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-    };
-  }, [innerHeight]);
-
-  const onSplitPointerDown = (e) => {
-    draggingSplitRef.current = true;
-    try {
-      if (typeof e?.target?.setPointerCapture === 'function' && e.pointerId != null) e.target.setPointerCapture(e.pointerId);
-    } catch { /* ignore */ }
-    try { document.body.style.cursor = 'ns-resize'; } catch { /* ignore */ }
-  };
-
-  const onSplitDoubleClick = () => {
-    const el = containerRef.current; if (!el) { setSplitRatio(0.5); return; }
-    const header = el.querySelector('.maid-header');
-    const total = innerHeight || (el.clientHeight - (header?.offsetHeight || 0));
-    const lowerBound = Math.max(RATIO_MIN, total > 0 ? MIN_TOP_PX / total : RATIO_MIN);
-    const upperBound = Math.min(RATIO_MAX, total > 0 ? 1 - (MIN_BOTTOM_PX / total) : RATIO_MAX);
-    const mid = 0.5;
-    setSplitRatio(Math.min(upperBound, Math.max(lowerBound, mid)));
-  };
-
-  const onSplitKeyDown = (e) => {
-    const key = e.key;
-    const step = (key === 'PageUp' || key === 'PageDown') ? 0.1 : 0.02;
-    let next = splitRatio;
-    if (key === 'ArrowUp' || key === 'PageUp' || key === 'Home') next = key === 'Home' ? RATIO_MIN : splitRatio + step;
-    if (key === 'ArrowDown' || key === 'PageDown' || key === 'End') next = key === 'End' ? RATIO_MAX : splitRatio - step;
-    if (next === splitRatio) return;
-    const el = containerRef.current; if (!el) { setSplitRatio(Math.min(RATIO_MAX, Math.max(RATIO_MIN, next))); return; }
-    const header = el.querySelector('.maid-header');
-    const total = innerHeight || (el.clientHeight - (header?.offsetHeight || 0));
-    const lowerBound = Math.max(RATIO_MIN, total > 0 ? MIN_TOP_PX / total : RATIO_MIN);
-    const upperBound = Math.min(RATIO_MAX, total > 0 ? 1 - (MIN_BOTTOM_PX / total) : RATIO_MAX);
-    setSplitRatio(Math.min(upperBound, Math.max(lowerBound, next)));
-    try { e.preventDefault(); } catch { /* ignore */ }
-  };
+  // 分割条逻辑已移至 useLayoutSplit
 
   useEffect(() => {
     const onResize = () => {
@@ -497,17 +342,15 @@ export default function Maid() {
     // 初次计算
     onResize();
     return () => window.removeEventListener('resize', onResize);
-  }, []);
+  }, [setInnerHeight]);
 
 
     // 计算上下区以及画布区高度（扣除控制栏高度）
-    const topHeightPx = innerHeight ? Math.max(0, Math.round(innerHeight * splitRatio)) : 0;
-    const bottomHeightPx = innerHeight ? Math.max(0, innerHeight - topHeightPx - 6) : 0;
-    const canvasAreaHeightPx = Math.max(0, bottomHeightPx - (Number(controlbarH) || 0));
+    const { topHeightPx, bottomHeightPx, canvasAreaHeightPx } = calcHeights(controlbarH);
 
     return (
     <div ref={containerRef} className={`maid-widget maid-float${collapsed ? ' maid-collapsed' : ''}`} style={{ width: panelWidth ? `${panelWidth}px` : undefined }}>
-      <div className="maid-resizer" role="separator" aria-orientation="vertical" onPointerDown={onResizerPointerDown} />
+      <div className="maid-resizer" role="separator" aria-orientation="vertical" onPointerDown={onResizerDown} />
 
       {/* 顶部栏：动作（设置/收起） */}
       <Header settingsOpen={settingsOpen} onToggleSettings={toggleSettings} collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
@@ -537,10 +380,6 @@ export default function Maid() {
         <SettingsPanel
           dpi={dpi}
           setDpi={setDpi}
-          currentModelKey={currentModelKey}
-          setCurrentModelKey={(key) => { setOpenPanel(''); setCurrentModelKey(key); }}
-          modelConfigs={modelConfigs}
-          loadAndShowModel={loadAndShowModel}
         />
       )}
       <EmotionPanel

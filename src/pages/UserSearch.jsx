@@ -15,6 +15,7 @@ export default function UserSearch() {
   const doSearch = async () => {
     if (!keyword.trim()) return;
     setLoading(true);
+    setError(null);
     const params = new URLSearchParams();
     params.set(mode, keyword.trim());
     try {
@@ -22,11 +23,14 @@ export default function UserSearch() {
       const j = await res.json();
       if (j && j.code === 200 && j.data) {
         setResults(j.data.list || []);
+        setError(null);
       } else {
         setResults([]);
+        setError(j?.message || '搜索失败');
       }
     } catch {
       setResults([]);
+      setError('网络错误，请稍后重试');
     } finally {
       setLoading(false);
     }
