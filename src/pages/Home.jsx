@@ -102,6 +102,12 @@ const Home = () => {
     ? ((page + 1) * size < totalCount)
     : (lastFetchedCount === size);
 
+  // 隐藏 Home 页滚动条（不影响滚动），离开时恢复
+  useEffect(() => {
+    try { document.body.classList.add('hide-scrollbar'); } catch (err) { void err; }
+    return () => { try { document.body.classList.remove('hide-scrollbar'); } catch (err) { void err; } };
+  }, []);
+
   return (
     <>
       <BannerNavbar bannerId={undefined} />

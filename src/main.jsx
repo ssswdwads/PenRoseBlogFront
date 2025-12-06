@@ -2,8 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import ReactDOM from 'react-dom/client';
 import './index.css';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { startGlobalNotificationSubscriber } from './globalNotificationSubscriber';
-
+import { AiAssistantProvider } from './contexts/AiAssistantContext';
 const Welcome = lazy(() => import('./pages/Welcome'));
 const Home = lazy(() => import('./pages/Home'));
 const SelfSpace = lazy(() => import('./pages/SelfSpace'));
@@ -22,8 +21,9 @@ startGlobalNotificationSubscriber();
 ReactDOM.createRoot(document.getElementById('root')).render(
 	<React.StrictMode>
 		<BrowserRouter>
+			<AiAssistantProvider>
 			<Suspense fallback={null}>
-				   <Routes>
+						 <Routes>
 					   <Route path="/" element={<Home />} />
 					   <Route path="/home" element={<Home />} />
 					   <Route path="/welcome" element={<Welcome />} />
@@ -36,8 +36,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 					   <Route path="/friends" element={<FriendsList />} />
 					   <Route path="/follows" element={<FollowingList />} />
 			    	   <Route path="/users/search" element={<UserSearch />} />
-				   </Routes>
+						</Routes>
 			</Suspense>
+			</AiAssistantProvider>
 		</BrowserRouter>
 	</React.StrictMode>
 );
