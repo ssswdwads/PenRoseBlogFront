@@ -1408,14 +1408,28 @@ export default function ConversationDetail() {
                                                     )}
                                                 </div>
                                                 <div className="pm-blog-preview-actions">
-                                                    <a
-                                                        href={msg.blogPreview.url || '#'}
+                                                    {msg.blogPreview && msg.blogPreview.blogId ? (
+                                                      <button
+                                                        type="button"
+                                                        className="pm-blog-preview-open"
+                                                        onClick={(e) => {
+                                                          e.stopPropagation();
+                                                          navigate(`/post/${msg.blogPreview.blogId}`);
+                                                        }}
+                                                      >
+                                                        查看原文
+                                                      </button>
+                                                    ) : (
+                                                      <a
+                                                        href={msg.blogPreview?.url || '#'}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
-                                                    >
+                                                        onClick={(e) => e.stopPropagation()}
+                                                      >
                                                         查看原文
-                                                    </a>
-                                                </div>
+                                                      </a>
+                                                    )}
+                                                  </div>
                                             </div>
                                         </div>
                                     )}

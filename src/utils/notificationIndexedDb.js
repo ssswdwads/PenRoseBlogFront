@@ -47,8 +47,8 @@ export function buildNotificationKey(userId, n) {
     if (!userId || !n) return null;
     const t = n.type || 'UNKNOWN';
     const rid = n.requestId ?? n.referenceId ?? '0';
-    const ts = n.createdAt || '';
-    return `${userId}#${t}#${rid}#${ts}`;
+    // 持久化主键不包含 createdAt，这样同一（type+rid）会被覆盖，避免重复存储
+    return `${userId}#${t}#${rid}`;
 }
 
 /**
@@ -166,5 +166,33 @@ async function trimNotificationsIfNeeded(db, userId, limit) {
 
         tx.oncomplete = () => resolve();
         tx.onerror = () => reject(tx.error);
+    });
+}
+
+/**
+ * 从本地缓存删除一条通知（按 userId + type + id）
+ * n 可以是完整通知对象，也可以是 { type: 'FRIEND_REQUEST', requestId: id } 之类的简化对象
+ */
+export async function deleteNotificationFromCache(userId, n) {
+    if (!userId || !n) return;
+    const db = await openNotificationDb();
+    return new Promise((resolve, reject) => {
+        try {
+            const tx = db.transaction([STORE_NOTIFICATIONS], 'readwrite');
+            const store = tx.objectStore(STORE_NOTIFICATIONS);
+            const key = buildNotificationKey(userId, n);
+            if (!key) {
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+                return;
+            }
+            store.delete(key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.error('[notificationIndexedDb] deleteNotificationFromCache error', e);
+            reject(e);
+        }
     });
 }

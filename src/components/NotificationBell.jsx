@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 /**
  * 通知铃组件：
@@ -22,6 +22,16 @@ export default function NotificationBell() {
         typeof localStorage !== 'undefined'
             ? localStorage.getItem('userId')
             : null;
+    const storageKey = userId ? `notification_unread_count_${userId}` : null;
+    const navigate = useNavigate();
+
+    // 初始化时从 localStorage 读取未读数
+    useEffect(() => {
+        if (storageKey) {
+            const stored = localStorage.getItem(storageKey);
+            setCount(stored ? parseInt(stored, 10) : 0);
+        }
+    }, [storageKey]);
 
     useEffect(() => {
         if (!token || !userId) {
@@ -45,6 +55,11 @@ export default function NotificationBell() {
                 const data = JSON.parse(e.data || '{}');
                 if (!data) return;
 
+                // 忽略私信类型的通知，私信使用专门的私信逻辑处理（避免铃铛重复接收到私信）
+                if (data.type === 'PRIVATE_MESSAGE') {
+                    return;
+                }
+
                 // 只统计发给当前用户的通知
                 if (
                     data.receiverId != null &&
@@ -54,8 +69,12 @@ export default function NotificationBell() {
                     return;
                 }
 
-                // 所有类型的 NotificationDTO 统一 +1
-                setCount((prev) => prev + 1);
+                // 新通知，未读数+1，并写入 localStorage
+                setCount((prev) => {
+                    const next = prev + 1;
+                    if (storageKey) localStorage.setItem(storageKey, next);
+                    return next;
+                });
             } catch {
                 // ignore
             }
@@ -84,19 +103,28 @@ export default function NotificationBell() {
                 }
             }
         };
-    }, [token, userId]);
+    }, [token, userId, storageKey]);
+
+    // 点击铃铛时清零未读数
+    const handleClick = (e) => {
+        setCount(0);
+        if (storageKey) localStorage.setItem(storageKey, 0);
+        // 跳转
+        navigate('/friends/pending');
+        e.preventDefault();
+    };
 
     return (
         <div style={{ position: 'relative' }}>
-            <Link
-                to="/friends/pending"
+            <button
+                className="notification-bell"
+                type="button"
                 aria-label="查看通知"
                 style={{ display: 'inline-block' }}
+                onClick={handleClick}
             >
-                <button className="notification-bell" type="button">
-                    🔔
-                </button>
-            </Link>
+                🔔
+            </button>
             {count > 0 && (
                 <span
                     style={{

@@ -8,6 +8,21 @@ import {
     buildNotificationKey,
 } from './notificationIndexedDb';
 
+import { deleteNotificationFromCache as _deleteFromDb } from './notificationIndexedDb';
+
+/**
+ * 从缓存中删除一条通知（供业务组件调用）
+ */
+export async function deleteNotificationFromCache(meId, n) {
+    if (!meId || !n) return;
+    try {
+        await _deleteFromDb(meId, n);
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error('[localNotificationCacheService] deleteNotificationFromCache error', e);
+    }
+}
+
 /**
  * 从本地缓存预加载当前用户最近 N 条通知（按时间降序）。
  */

@@ -115,6 +115,13 @@ export default function Welcome() {
   };
 
   // 注册逻辑
+  const avatarFiles = [
+    "三花猫.svg","傻猫.svg","博学猫.svg","布偶.svg","无毛猫.svg","暹罗猫.svg",
+    "橘猫.svg","波斯猫.svg","牛奶猫.svg","狸花猫.svg","猫.svg","田园猫.svg",
+    "白猫.svg","眯眯眼猫.svg","缅因猫.svg","美短.svg","英短猫.svg","蓝猫.svg",
+    "黄猫.svg","黑猫.svg"
+  ];
+
   const handleRegister = async (e) => {
     e.preventDefault();
     setMessage('');
@@ -139,11 +146,17 @@ export default function Welcome() {
       setMessageType('error');
       return;
     }
+
+    // 随机选择占位头像（public 下的静态资源路径）
+    const randomFile = avatarFiles[Math.floor(Math.random() * avatarFiles.length)];
+    const avatarUrl = encodeURI(`/icons/avatar_no_sign_in/${randomFile}`);
+
     try {
       const res = await axios.post('/api/user/register', {
         username: registerData.username,
         password: registerData.password,
-        gender: registerData.gender
+        gender: registerData.gender,
+        avatarUrl: avatarUrl
       });
       setMessage(res.data.msg);
       setMessageType(res.data.code === 200 ? 'success' : 'error');

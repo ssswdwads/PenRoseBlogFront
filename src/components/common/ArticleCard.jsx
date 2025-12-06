@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import '../../styles/common/ArticleCard.css';
 import resolveUrl from '../../utils/resolveUrl';
 
@@ -18,8 +18,6 @@ function truncateByUnits(text = '', limitUnits = 48) {
 }
 
 export default function ArticleCard({ post, className }) {
-    const navigate = useNavigate();
-    const handleClick = () => navigate(`/post/${post.id}`);
     const [views, setViews] = useState(null);
 
     const coverSrc = resolveUrl(post.coverImageUrl) || null;
@@ -110,7 +108,6 @@ export default function ArticleCard({ post, className }) {
     const card = (
         <div
             className={['home-article-card', className].filter(Boolean).join(' ')}
-            onClick={handleClick}
             style={{ position: 'relative' }}
         >
             {isOwner && (
@@ -155,7 +152,7 @@ export default function ArticleCard({ post, className }) {
         </div>
     );
 
-    // 这里保持 Link 包裹，使整卡点击跳转；删除按钮内部已经阻止默认行为
+    // 保留 Link 包裹以处理导航；删除卡片内部的重复 navigate 调用
     return (
         <Link to={`/post/${post.id || post.postId}`} style={{ textDecoration: 'none', color: 'inherit' }}>
             {card}

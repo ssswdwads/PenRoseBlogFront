@@ -59,6 +59,7 @@ export default function ArticleDetail() {
         return h;
     };
 
+
     // ---------------- 加载文章 & 记录浏览 ----------------
     useEffect(() => {
         let cancelled = false;
@@ -407,77 +408,61 @@ export default function ArticleDetail() {
             if (!Array.isArray(list) || list.length === 0) {
                 list = (await loadReplies(commentId)) || [];
             }
-            const idx = (list || []).findIndex(
-                (r) => String(r.id) === String(replyId)
-            );
-            const pageForReply =
-                idx >= 0 ? Math.floor(idx / repliesPerPage) + 1 : 1;
-            setRepliesPageMap((prev) => ({
-                ...prev,
-                [commentId]: pageForReply,
-            }));
+            const idx = (list || []).findIndex((r) => String(r.id) === String(replyId));
+            const pageForReply = idx >= 0 ? Math.floor(idx / repliesPerPage) + 1 : 1;
+            setRepliesPageMap((prev) => ({ ...prev, [commentId]: pageForReply }));
             setOpenReplies((prev) => ({ ...prev, [commentId]: true }));
 
+            // 统一清理旧的高亮
             try {
-                document
-                    .querySelectorAll('.hot-highlight')
-                    .forEach((el) =>
-                        el.classList.remove('hot-highlight')
-                    );
+                clearAllHotHighlights();
             } catch {
                 // ignore
             }
 
-            setTimeout(() => {
+            // 尝试定位并高亮回复元素；做少量重试以兼容 DOM 还未渲染的情况
+            const tryScrollAndHighlight = () => {
                 const el = document.getElementById(`reply-${replyId}`);
                 if (el) {
-                    el.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'center',
-                    });
-                    el.classList.add('hot-highlight');
-                    setTimeout(() => {
-                        try {
-                            el.classList.remove('hot-highlight');
-                        } catch {
-                            // ignore
-                        }
-                    }, 2600);
-                } else {
-                    setTimeout(() => {
-                        const el2 = document.getElementById(
-                            `reply-${replyId}`
-                        );
-                        if (el2) {
-                            el2.scrollIntoView({
-                                behavior: 'smooth',
-                                block: 'center',
-                            });
-                            el2.classList.add('hot-highlight');
-                            setTimeout(() => {
-                                try {
-                                    el2.classList.remove('hot-highlight');
-                                } catch {
-                                    // ignore
-                                }
-                            }, 2600);
-                        }
-                    }, 180);
+                    try {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    } catch {}
+                    addHotHighlight(el);
+                    // 确保父评论不被同时高亮（修复父评论一起高亮的问题）
+                    try {
+                        const parentEl = document.getElementById(`comment-${commentId}`);
+                        if (parentEl) parentEl.classList.remove('hot-highlight');
+                    } catch {}
+                    return true;
                 }
-            }, 120);
+                return false;
+            };
+
+            if (!tryScrollAndHighlight()) {
+                // 二次尝试
+                setTimeout(() => {
+                    if (!tryScrollAndHighlight()) {
+                        setTimeout(() => {
+                            tryScrollAndHighlight();
+                        }, 180);
+                    }
+                }, 120);
+            }
         } catch (e) {
+            // 出错时回退行为：先展开父评论，再尝试直接定位
             // eslint-disable-next-line no-console
             console.error('[openCommentReplyAndScroll] error', e);
             setOpenReplies((prev) => ({ ...prev, [commentId]: true }));
             setTimeout(() => {
-                const el = document.getElementById(
-                    `reply-${replyId}`
-                );
-                if (el)
-                    el.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'center',
-                    });
+                const el = document.getElementById(`reply-${replyId}`);
+                if (el) {
+                    try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch {}
+                    addHotHighlight(el);
+                    try {
+                        const parentEl = document.getElementById(`comment-${commentId}`);
+                        if (parentEl) parentEl.classList.remove('hot-highlight');
+                    } catch {}
+                }
             }, 200);
         }
     }
@@ -925,6 +910,7 @@ export default function ArticleDetail() {
     const md = new MarkdownIt();
 
     // ----- 根据 URL 的 commentId 定位评论 -----
+    const handledReplyRef = useRef(false);
     useEffect(() => {
         if (!comments || comments.length === 0) return;
 
@@ -932,7 +918,15 @@ export default function ArticleDetail() {
             const search = window.location.search || '';
             const params = new URLSearchParams(search);
             const cid = params.get('commentId');
+            const rid = params.get('replyId'); // 回复 id（可选）
+
             if (!cid) return;
+
+            // 如果已经处理过同一条 reply，则不再重复处理（避免循环滚动）
+            if (rid && handledReplyRef.current && String(handledReplyRef.current) === `${cid}:${rid}`) {
+                // 已处理，直接返回
+                return;
+            }
 
             // 找出该评论在当前排序列表中的索引
             const idxInSorted = sortedComments.findIndex(
@@ -944,7 +938,48 @@ export default function ArticleDetail() {
                 Math.floor(idxInSorted / commentsPerPage) + 1;
             setCommentsPage(targetPage);
 
-            // 滚动 & 高亮
+            // 若带有 replyId，则使用 openCommentReplyAndScroll 定位并展开具体回复
+            if (rid) {
+                // 标记为已处理（以 "commentId:replyId" 形式）
+                handledReplyRef.current = `${cid}:${rid}`;
+
+                // 等待 DOM / 评论加载与页面切换稳定后调用展开滚动
+                setTimeout(() => {
+                    try {
+                        if (typeof openCommentReplyAndScroll === 'function') {
+                            openCommentReplyAndScroll(cid, rid);
+                        } else {
+                            const el = document.getElementById(`comment-${cid}`);
+                            if (el) {
+                                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                el.classList.add('hot-highlight');
+                                setTimeout(() => {
+                                    try { el.classList.remove('hot-highlight'); } catch {}
+                                }, 2600);
+                            }
+                        }
+                    } catch {
+                        // ignore
+                    }
+
+                    // 调用后立刻把 URL 中的 replyId 参数移除，避免后续渲染重复触发
+                    try {
+                        const currentUrl = window.location.pathname + window.location.search;
+                        const newParams = new URLSearchParams(window.location.search);
+                        newParams.delete('replyId');
+                        // 可选择同时删除 commentId 或保留 commentId；这里保留 commentId
+                        const newSearch = newParams.toString();
+                        const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : '');
+                        window.history.replaceState(null, '', newUrl);
+                    } catch {
+                        // ignore
+                    }
+                }, 300);
+
+                return;
+            }
+
+            // 没有 replyId 的情况：原有定位 comment 的高亮逻辑
             setTimeout(() => {
                 const el = document.getElementById(`comment-${cid}`);
                 if (el) {
@@ -1881,4 +1916,35 @@ export default function ArticleDetail() {
             )}
         </div>
     );
+}
+
+// ---------- hot highlight 管理（避免重复闪动） ----------
+const hotHighlightTimers = new Map();
+
+function addHotHighlight(el) {
+  if (!el) return;
+  const key = el.id || `${Math.random()}`;
+  // 如果已有计时器，先清除旧计时器（重置高亮时长）
+  if (hotHighlightTimers.has(key)) {
+    try { clearTimeout(hotHighlightTimers.get(key)); } catch {}
+  }
+  // 加 class（如果已存在也没关系），然后设置新的移除计时器
+  try { el.classList.add('hot-highlight'); } catch {}
+  const t = setTimeout(() => {
+    try { el.classList.remove('hot-highlight'); } catch {}
+    hotHighlightTimers.delete(key);
+  }, 2600);
+  hotHighlightTimers.set(key, t);
+}
+
+function clearAllHotHighlights() {
+  // 清空所有计时器并移除 class
+  for (const [key, t] of hotHighlightTimers.entries()) {
+    try { clearTimeout(t); } catch {}
+    const el = document.getElementById(key);
+    if (el) {
+      try { el.classList.remove('hot-highlight'); } catch {}
+    }
+  }
+  hotHighlightTimers.clear();
 }
